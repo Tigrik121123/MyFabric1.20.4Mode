@@ -171,7 +171,7 @@ public class TelegramBridgeMod implements ModInitializer {
                         config.telegramBotToken = StringArgumentType.getString(context, "token_value");
                         saveConfig();
                         context.getSource().sendFeedback(() -> Text.literal("Telegram Bot Token установлен и сохранен."), false);
-                        LOGGER.info("[TelegramBridge] Telegram Bot Token set and saved: '{}'",คอนฟิก.telegramBotToken);
+                        LOGGER.info("[TelegramBridge] Telegram Bot Token set and saved: '{}'",config.telegramBotToken);
                         return 1;
                     })));
 
@@ -182,7 +182,7 @@ public class TelegramBridgeMod implements ModInitializer {
                         config.telegramChatId = StringArgumentType.getString(context, "chat_id_value");
                         saveConfig();
                         context.getSource().sendFeedback(() -> Text.literal("Telegram Chat ID установлен и сохранен."), false);
-                        LOGGER.info("[TelegramBridge] Telegram Chat ID set and saved: '{}'",คอนฟิก.telegramChatId);
+                        LOGGER.info("[TelegramBridge] Telegram Chat ID set and saved: '{}'",config.telegramChatId);
                         return 1;
                     })));
 

@@ -63,7 +63,7 @@ public class TelegramBridgeMod implements ModInitializer {
                         return 1;
                     })));
 
-            dispatcher.register(CommandManager.literal("say")
+            dispatcher.register(CommandManager.literal("tgsay")
                 .requires(source -> source.hasPermissionLevel(0))
                 .then(CommandManager.argument("text", StringArgumentType.greedyString())
                     .executes(context -> {
@@ -75,8 +75,8 @@ public class TelegramBridgeMod implements ModInitializer {
                                 senderName = player.getGameProfile().getName();
                             }
                         }
-                        LOGGER.info("[TelegramBridge] /say command executed by '{}'. Message: '{}'", senderName, messageText);
-                        String telegramMessage = "[" + senderName + " via /say]: " + messageText;
+                        LOGGER.info("[TelegramBridge] /tgsay command executed by '{}'. Message: '{}'", senderName, messageText);
+                        String telegramMessage = "[" + senderName + " via /tgsay]: " + messageText;
                         sendToTelegram(telegramMessage, false, senderName);
                         context.getSource().sendFeedback(() -> Text.literal("Попытка отправить сообщение в Telegram... (см. логи сервера)"), false);
                         return 1;

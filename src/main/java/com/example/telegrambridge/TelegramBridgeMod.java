@@ -1,4 +1,4 @@
-package com.github/Tigrik121123.telegrambridge; // ИЗМЕНИ com.yourusername на твой group_id
+package com.Tigrik121123.telegrambridge;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.api.ModInitializer;

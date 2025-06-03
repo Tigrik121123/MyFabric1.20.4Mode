@@ -34,7 +34,29 @@ dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // 1. Добавляем Fabric API BOM (Bill of Materials)
+    // Это позволяет нам не указывать версии для отдельных модулей Fabric API ниже,
+    // так как BOM определяет набор совместимых версий.
+    modImplementation platform("net.fabricmc:fabric-api-bom:${project.fabric_version}")
+
+    // 2. Удаляем "зонтичную" зависимость fabric-api, так как мы будем подключать модули по отдельности
+    // УДАЛИТЬ ИЛИ ЗАКОММЕНТИРОВАТЬ: modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    // 3. Теперь добавляем НЕОБХОДИМЫЕ модули Fabric API по отдельности:
+    // Базовые модули, которые обычно нужны:
+    modImplementation "net.fabricmc.fabric-api:fabric-api-base"
+    modImplementation "net.fabricmc.fabric-api:fabric-lifecycle-events-v1" // Для ServerLifecycleEvents
+
+    // Модули, которые мы используем в моде:
+    modImplementation "net.fabricmc.fabric-api:fabric-command-api-v2"          // Для CommandRegistrationCallback
+    modImplementation "net.fabricmc.fabric-api:fabric-message-api-v1"          // Для ServerMessageEvents
+    modImplementation "net.fabricmc.fabric-api:fabric-networking-api-v1"       // Для ServerPlayConnectionEvents (join/disconnect)
+    modImplementation "net.fabricmc.fabric-api:fabric-entity-events-v1"        // Для ServerLivingEntityEvents (смерти)
+    modImplementation "net.fabricmc.fabric-api:fabric-advancement-api-v1"      // Для ServerAdvancementEvents (достижения) - ПРОБУЕМ ЭТО ИМЯ С BOM
+
+    // Если какой-то из этих модулей не найдется, Gradle снова выдаст ошибку,
+    // и мы будем знать, какой именно модуль нужно исправить или найти его правильное имя.
 }
 
 processResources {

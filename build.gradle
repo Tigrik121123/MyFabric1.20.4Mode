@@ -4,7 +4,7 @@ plugins {
 }
 
 version = project.mod_version
-group = project.maven_group
+group = project.mod_group
 
 base {
 	archivesName = project.archives_base_name

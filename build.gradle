@@ -1,6 +1,7 @@
 plugins {
-	id 'fabric-loom' version '1.10-SNAPSHOT' // Убедись, что версия Loom актуальна для твоей версии Minecraft/Fabric
-	id 'maven-publish'
+    // id 'fabric-loom' version '1.10-SNAPSHOT' // Старая версия
+    id 'fabric-loom' version '1.6.11' // Попробуем стабильную версию, проверь актуальность
+    id 'maven-publish'
 }
 
 version = project.mod_version

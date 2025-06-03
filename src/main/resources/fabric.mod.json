@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "telegram_bridge",
+  "version": "${version}",
+  "name": "Telegram Bridge",
+  "description": "Sends server messages and allows saying to Telegram.",
+  "authors": [
+    "WortexCorporation" // Замени на свой ник
+  ],
+  "contact": {
+    "homepage": "https://github.com/Tigrik121123/MyFabric1.20.4Mode", // Ссылка на твой репозиторий
+    "sources": "https://github.com/YourGitHubUsername/YourRepoName"
+  },
+  "license": "MIT", // Или другая лицензия
+  "icon": "assets/telegram_bridge/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.Tigrik121123.telegrambridge.TelegramBridgeMod" // Должно совпадать с твоим пакетом и именем класса
+    ]
+  },
+  "mixins": [], // Оставляем пустым, если миксины не используются
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "~${minecraft_version}",
+    "java": ">=17"
+  }
+}

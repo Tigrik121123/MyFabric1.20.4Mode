@@ -1,5 +1,5 @@
 plugins {
-	id 'fabric-loom' version '1.10-SNAPSHOT'
+	id 'fabric-loom' version '1.10-SNAPSHOT' // Убедись, что версия Loom актуальна для твоей версии Minecraft/Fabric
 	id 'maven-publish'
 }
 
@@ -10,24 +10,36 @@ base {
 	archivesName = project.archives_base_name
 }
 
+// --- ДОБАВЛЕН ЯВНЫЙ БЛОК РЕПОЗИТОРИЕВ ---
 repositories {
-	// Add repositories to retrieve artifacts from in here.
-	// You should only use this when depending on other mods because
-	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
-	// for more information about repositories.
+    mavenCentral()
+    maven {
+        name = "Fabric"
+        url = "https://maven.fabricmc.net/"
+    }
+    maven {
+        name = "Mojang"
+        url = "https://libraries.minecraft.net/"
+    }
 }
+// -----------------------------------------
 
 loom {
 	splitEnvironmentSourceSets()
 
 	mods {
-		"modid" {
+		// Имя "modid" здесь должно совпадать с твоим mod_id из gradle.properties, если ты хочешь специфичные настройки для мода
+		// Или можно оставить "modid" как плейсхолдер, если общие настройки sourceSet подходят
+		// Правильнее будет так:
+		"${project.mod_id}" { // Используем ${project.mod_id}
 			sourceSet sourceSets.main
-			sourceSet sourceSets.client
+			// sourceSet sourceSets.client // Раскомментируй, если у тебя есть код только для клиента
 		}
 	}
-
+    // Добавим это на всякий случай, если Loom кэширует что-то не то
+    // runConfigs.configureEach {
+    //     it.refreshDeps()
+    // }
 }
 
 dependencies {
@@ -35,82 +47,64 @@ dependencies {
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-    // 1. Добавляем Fabric API BOM (Bill of Materials)
-    // Это позволяет нам не указывать версии для отдельных модулей Fabric API ниже,
-    // так как BOM определяет набор совместимых версий.
+    // Используем Fabric API BOM
     modImplementation platform("net.fabricmc:fabric-api-bom:${project.fabric_version}")
 
-    // 2. Удаляем "зонтичную" зависимость fabric-api, так как мы будем подключать модули по отдельности
-    // УДАЛИТЬ ИЛИ ЗАКОММЕНТИРОВАТЬ: modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
-    // 3. Теперь добавляем НЕОБХОДИМЫЕ модули Fabric API по отдельности:
-    // Базовые модули, которые обычно нужны:
+    // Подключаем необходимые модули Fabric API по отдельности
     modImplementation "net.fabricmc.fabric-api:fabric-api-base"
-    modImplementation "net.fabricmc.fabric-api:fabric-lifecycle-events-v1" // Для ServerLifecycleEvents
-
-    // Модули, которые мы используем в моде:
-    modImplementation "net.fabricmc.fabric-api:fabric-command-api-v2"          // Для CommandRegistrationCallback
-    modImplementation "net.fabricmc.fabric-api:fabric-message-api-v1"          // Для ServerMessageEvents
-    modImplementation "net.fabricmc.fabric-api:fabric-networking-api-v1"       // Для ServerPlayConnectionEvents (join/disconnect)
-    modImplementation "net.fabricmc.fabric-api:fabric-entity-events-v1"        // Для ServerLivingEntityEvents (смерти)
-    modImplementation "net.fabricmc.fabric-api:fabric-advancement-api-v1"      // Для ServerAdvancementEvents (достижения) - ПРОБУЕМ ЭТО ИМЯ С BOM
-
-    // Если какой-то из этих модулей не найдется, Gradle снова выдаст ошибку,
-    // и мы будем знать, какой именно модуль нужно исправить или найти его правильное имя.
+    modImplementation "net.fabricmc.fabric-api:fabric-lifecycle-events-v1"
+    modImplementation "net.fabricmc.fabric-api:fabric-command-api-v2"
+    modImplementation "net.fabricmc.fabric-api:fabric-message-api-v1"
+    modImplementation "net.fabricmc.fabric-api:fabric-networking-api-v1"
+    modImplementation "net.fabricmc.fabric-api:fabric-entity-events-v1"
+    modImplementation "net.fabricmc.fabric-api:fabric-advancement-api-v1" // Оставляем это имя, так как оно наиболее вероятно для BOM
 }
 
 processResources {
-    // Определяем все свойства, которые мы хотим использовать для подстановки
     inputs.property "version", project.version
-    inputs.property "mod_id", project.mod_id // На всякий случай, если где-то есть ${mod_id}
-    inputs.property "mod_name", project.mod_name // На всякий случай
-    inputs.property "mod_group", project.mod_group // На всякий случай
+    inputs.property "mod_id", project.mod_id
+    inputs.property "mod_name", project.mod_name
+    inputs.property "mod_group", project.mod_group
     inputs.property "minecraft_version", project.minecraft_version
     inputs.property "loader_version", project.loader_version
-    inputs.property "fabric_version", project.fabric_version // На всякий случай, если используется в fabric.mod.json
+    inputs.property "fabric_version", project.fabric_version
 
     filesMatching("fabric.mod.json") {
-        // Передаем все определенные выше свойства в контекст expand
-        expand(inputs.properties) 
+        expand(inputs.properties)
     }
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 17 // БЫЛО 21
+	it.options.release = 17
 }
 
 java {
-	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
-	// if it is present.
-	// If you remove this line, sources will not be generated.
 	withSourcesJar()
-
-	sourceCompatibility = JavaVersion.VERSION_17 // БЫЛО JavaVersion.VERSION_21
-	targetCompatibility = JavaVersion.VERSION_17 // БЫЛО JavaVersion.VERSION_21
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
 }
 
 jar {
-	inputs.property "archivesName", project.base.archivesName
-
+    // inputs.property "archivesName", project.base.archivesName.get() // Используем .get() для Property
 	from("LICENSE") {
-		rename { "${it}_${inputs.properties.archivesName}"}
+        // rename { "${it}_${project.base.archivesName.get()}"} // Используем .get()
+        // Если у тебя нет файла LICENSE, эту секцию from("LICENSE") можно закомментировать или удалить
+        // Чтобы избежать ошибки, если файла нет:
+        onlyIf { project.file("LICENSE").exists() }
+        rename { "${it}_${project.base.archivesName.get()}" }
 	}
 }
 
-// configure the maven publication
 publishing {
 	publications {
 		create("mavenJava", MavenPublication) {
-			artifactId = project.archives_base_name
+            // artifactId = project.archives_base_name // Это было из gradle.properties
+            // Правильнее использовать значение из base.archivesName, которое уже установлено
+            artifactId = project.base.archivesName.get() // Используем .get()
 			from components.java
 		}
 	}
-
-	// See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
 	repositories {
-		// Add repositories to publish to here.
-		// Notice: This block does NOT have the same function as the block in the top level.
-		// The repositories here will be used for publishing your artifact, not for
-		// retrieving dependencies.
+		// Репозитории для публикации (если будешь публиковать)
 	}
 }

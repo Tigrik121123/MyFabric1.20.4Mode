@@ -1,6 +1,6 @@
 plugins {
-    // id 'fabric-loom' version '1.10-SNAPSHOT' // Старая версия
-    id 'fabric-loom' version '1.6.11' // Попробуем стабильную версию, проверь актуальность
+    // id 'fabric-loom' version '1.6.11' // Вызывало ошибку с Problems API
+    id 'fabric-loom' version '1.10-SNAPSHOT' // Возвращаемся к этой версии
     id 'maven-publish'
 }
 

@@ -119,7 +119,7 @@ public class TelegramBridgeMod implements ModInitializer {
         });
     }
 
-   private void sendToTelegram(String message, boolean addPrefix, String origin) {
+private void sendToTelegram(String message, boolean addPrefix, String origin) {
     if (telegramBotToken == null || telegramChatId == null) {
         LOGGER.warn("[TelegramBridge] Telegram Bot Token или Chat ID не установлены. Сообщение НЕ отправлено: {}", message);
         return;
@@ -140,7 +140,7 @@ public class TelegramBridgeMod implements ModInitializer {
         }
     });
 }
-
+    
         String finalMessage;
         if (addPrefix) {
             String dateTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());

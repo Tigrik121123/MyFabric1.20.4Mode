@@ -4,12 +4,19 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.advancement.v1.ServerAdvancementEvents; // Для достижений
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents; // Для смертей
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.minecraft.network.message.MessageType; // Убедимся, что импорт есть
-import net.minecraft.network.message.SignedMessage; // Убедимся, что импорт есть
+import net.minecraft.advancement.AdvancementDisplay;
+import net.minecraft.advancement.AdvancementEntry;
+import net.minecraft.advancement.AdvancementFrame;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.network.message.MessageType;
+import net.minecraft.network.message.SignedMessage;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -33,9 +40,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
-import java.util.Arrays; // Для логирования стектрейса
 import java.util.Date;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit; // Для delayedExecutor
 
 public class TelegramBridgeMod implements ModInitializer {
     public static final String MOD_ID = "telegram_bridge";
@@ -59,11 +66,8 @@ public class TelegramBridgeMod implements ModInitializer {
         if (!configDir.exists()) {
             LOGGER.info("[TelegramBridge] Config directory 'config' not found, creating it.");
             boolean dirCreated = configDir.mkdirs();
-            if (dirCreated) {
-                LOGGER.info("[TelegramBridge] Config directory 'config' created successfully.");
-            } else {
-                LOGGER.error("[TelegramBridge] Failed to create config directory 'config'.");
-            }
+            if (dirCreated) LOGGER.info("[TelegramBridge] Config directory 'config' created successfully.");
+            else LOGGER.error("[TelegramBridge] Failed to create config directory 'config'.");
         }
         configFile = new File(configDir, "telegram_bridge_config.json");
         LOGGER.info("[TelegramBridge] Config file path set to: {}", configFile.getAbsolutePath());
@@ -72,6 +76,8 @@ public class TelegramBridgeMod implements ModInitializer {
         registerCommands();
         registerMessageListener();
         registerPlayerConnectionListener();
+        registerLivingEntityEvents();
+        registerAdvancementEvents();
 
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             LOGGER.info("[TelegramBridge] Server started. Storing server instance.");
@@ -88,11 +94,9 @@ public class TelegramBridgeMod implements ModInitializer {
         String telegramBotToken = "";
         String telegramChatId = "";
         boolean enabled = true;
-        boolean sendPlayerMessages = true; // Новая опция: отправлять ли сообщения игроков
-        boolean sendDeaths = true;         // Новая опция: отправлять ли сообщения о смертях
-        boolean sendAchievements = true;   // Новая опция: отправлять ли сообщения о достижениях
-        // (Для sendPlayerJoinLeave мы используем отдельные события, они всегда включены, если включен мод)
-
+        boolean sendPlayerMessages = true;
+        boolean sendDeaths = true;
+        boolean sendAchievements = true;
         public Config() {}
     }
 
@@ -102,21 +106,20 @@ public class TelegramBridgeMod implements ModInitializer {
             try (FileReader reader = new FileReader(configFile)) {
                 config = GSON.fromJson(reader, Config.class);
                 if (config == null) {
-                    LOGGER.warn("[TelegramBridge] Config file was empty or malformed (fromJson returned null). Creating default config.");
+                    LOGGER.warn("[TelegramBridge] Config file was empty or malformed. Creating default config.");
                     config = new Config();
-                    saveConfig(); // Сохраняем дефолтный конфиг, чтобы он был валидным
+                    saveConfig();
                 } else {
                      LOGGER.info("[TelegramBridge] Config loaded successfully. Enabled: {}, Token set: {}, ChatID set: {}, SendPlayerMessages: {}, SendDeaths: {}, SendAchievements: {}",
-                        config.enabled,
-                        (config.telegramBotToken != null && !config.telegramBotToken.isEmpty()),
+                        config.enabled, (config.telegramBotToken != null && !config.telegramBotToken.isEmpty()),
                         (config.telegramChatId != null && !config.telegramChatId.isEmpty()),
                         config.sendPlayerMessages, config.sendDeaths, config.sendAchievements);
                 }
-            } catch (Exception e) { // Ловим более широкий спектр ошибок парсинга JSON
+            } catch (Exception e) {
                 LOGGER.error("[TelegramBridge] Failed to load or parse config file! Using default config. Error: {}", e.getMessage());
-                LOGGER.debug("[TelegramBridge] Config load exception details: ", e); // Полный стектрейс в debug
+                LOGGER.debug("[TelegramBridge] Config load exception details: ", e);
                 config = new Config();
-                saveConfig(); // Сохраняем дефолтный, чтобы при следующем запуске был шанс
+                saveConfig();
             }
         } else {
             LOGGER.info("[TelegramBridge] Config file not found at {}. Creating a new one with default values.", configFile.getAbsolutePath());
@@ -190,14 +193,11 @@ public class TelegramBridgeMod implements ModInitializer {
                 message.append(Text.literal("ВЫКЛЮЧЕНА.").formatted(Formatting.YELLOW));
             }
         } else if (tokenSet || chatIdSet) {
-            // Убираем лишний пробел в конце, если он есть, и добавляем перенос строки
-            String currentMessageString = message.getString(); // Получаем текущий текст для проверки
-            if (currentMessageString.endsWith("] ")) { // Если заканчивается на "[Установить] "
-                 // Удаляем последний пробел и добавляем перенос строки
+            String currentMessageString = message.getString();
+            if (currentMessageString.endsWith("] ")) {
                 MutableText temp = Text.empty();
                 for(int i=0; i < message.getSiblings().size(); i++){
                     if (i == message.getSiblings().size() -1 && message.getSiblings().get(i).getString().equals(" ")){
-                        // Пропускаем последний пробел
                     } else {
                         temp.append(message.getSiblings().get(i));
                     }
@@ -258,7 +258,7 @@ public class TelegramBridgeMod implements ModInitializer {
                         }
                         LOGGER.info("[TelegramBridge] /tgsay command executed by '{}'. Message: '{}'", senderName, messageText);
                         String telegramMessage = "[" + senderName + " via /tgsay]: " + messageText;
-                        sendToTelegram(telegramMessage, false, senderName);
+                        sendToTelegram(telegramMessage, false, senderName); // false - не добавлять префикс времени/даты
                         context.getSource().sendFeedback(() -> Text.literal("Попытка отправить сообщение в Telegram через /tgsay... (см. логи сервера)"), false);
                         return 1;
                     })));
@@ -316,7 +316,6 @@ public class TelegramBridgeMod implements ModInitializer {
                 .executes(context -> {
                     LOGGER.info("[TelegramBridge] /tgstatus command executed by {}.", context.getSource().getName());
                     MutableText statusMessage = Text.literal("--- Telegram Bridge Статус ---\n").formatted(Formatting.GOLD);
-
                     String sendingLabel = "Отправка сообщений: ";
                     String tokenLabel   = "Токен бота:         ";
                     String chatIdLabel  = "Chat ID:            ";
@@ -324,11 +323,9 @@ public class TelegramBridgeMod implements ModInitializer {
                     String sendDeathsLabel    = "Отправка смертей:   ";
                     String sendAchievLabel    = "Отправка достиж.:  ";
 
-
                     statusMessage.append(Text.literal(sendingLabel).formatted(Formatting.YELLOW));
                     statusMessage.append(Text.literal(config.enabled ? "ВКЛЮЧЕНА" : "ВЫКЛЮЧЕНА").formatted(config.enabled ? Formatting.GREEN : Formatting.RED));
                     statusMessage.append(Text.literal("\n"));
-
                     statusMessage.append(Text.literal(tokenLabel).formatted(Formatting.YELLOW));
                     if (config.telegramBotToken != null && !config.telegramBotToken.isEmpty()) {
                         String displayToken;
@@ -343,7 +340,6 @@ public class TelegramBridgeMod implements ModInitializer {
                         statusMessage.append(Text.literal("НЕ УСТАНОВЛЕН").formatted(Formatting.RED));
                     }
                     statusMessage.append(Text.literal("\n"));
-
                     statusMessage.append(Text.literal(chatIdLabel).formatted(Formatting.YELLOW));
                     if (config.telegramChatId != null && !config.telegramChatId.isEmpty()) {
                         statusMessage.append(Text.literal(config.telegramChatId).formatted(Formatting.GREEN));
@@ -351,18 +347,14 @@ public class TelegramBridgeMod implements ModInitializer {
                         statusMessage.append(Text.literal("НЕ УСТАНОВЛЕН").formatted(Formatting.RED));
                     }
                     statusMessage.append(Text.literal("\n"));
-
                     statusMessage.append(Text.literal(sendPlayerMsgLabel).formatted(Formatting.YELLOW));
                     statusMessage.append(Text.literal(config.sendPlayerMessages ? "ВКЛ" : "ВЫКЛ").formatted(config.sendPlayerMessages ? Formatting.GREEN : Formatting.RED));
                     statusMessage.append(Text.literal("\n"));
-                    
                     statusMessage.append(Text.literal(sendDeathsLabel).formatted(Formatting.YELLOW));
                     statusMessage.append(Text.literal(config.sendDeaths ? "ВКЛ" : "ВЫКЛ").formatted(config.sendDeaths ? Formatting.GREEN : Formatting.RED));
                     statusMessage.append(Text.literal("\n"));
-
                     statusMessage.append(Text.literal(sendAchievLabel).formatted(Formatting.YELLOW));
                     statusMessage.append(Text.literal(config.sendAchievements ? "ВКЛ" : "ВЫКЛ").formatted(config.sendAchievements ? Formatting.GREEN : Formatting.RED));
-
                     statusMessage.append(Text.literal("\n----------------------------").formatted(Formatting.GOLD));
 
                     context.getSource().sendFeedback(() -> statusMessage, false);
@@ -376,81 +368,121 @@ public class TelegramBridgeMod implements ModInitializer {
     private void registerMessageListener() {
         LOGGER.info("[TelegramBridge] Registering Chat Message Listener.");
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, typeKey) -> {
-            // Логируем абсолютно все сообщения, проходящие через этот эвент
             String senderName = (sender != null ? sender.getGameProfile().getName() : "NULL_SENDER");
             String messageContent = message.getContent().getString();
-            String typeKeyName = typeKey.type().chat().translationKey();
+            // MessageType.Parameters type = typeKey; // Старое имя
+            String typeKeyName = typeKey.type().chat().translationKey(); // Используем typeKey напрямую
+
             LOGGER.info("[TelegramBridge] CHAT_MESSAGE event received. Sender: '{}', TypeKey: '{}', RawContent: '{}'",
                     senderName, typeKeyName, messageContent);
 
-            if (sender != null) { // Это сообщение от игрока
+            if (sender != null) { // Сообщение от игрока
                 if (config.sendPlayerMessages) {
                     LOGGER.info("[TelegramBridge] Processing player message from '{}'.", senderName);
-                    String playerName = sender.getGameProfile().getName();
+                    // String playerName = sender.getGameProfile().getName(); // Уже есть в senderName
                     String playerMessageText = message.getContent().getString();
 
                     if (playerMessageText == null || playerMessageText.trim().isEmpty()) {
-                        LOGGER.trace("[TelegramBridge] Ignoring empty player message from {}.", playerName);
+                        LOGGER.trace("[TelegramBridge] Ignoring empty player message from {}.", senderName);
                         return;
                     }
-                    // Игнорируем команды, кроме /tgsay (хотя /tgsay имеет свой обработчик)
                     if (playerMessageText.startsWith("/") && !playerMessageText.toLowerCase().startsWith("/tgsay ")) {
-                        LOGGER.trace("[TelegramBridge] Ignoring player command from {}: {}", playerName, playerMessageText);
+                        LOGGER.trace("[TelegramBridge] Ignoring player command from {}: {}", senderName, playerMessageText);
                         return;
                     }
-                    // Дополнительная проверка, чтобы не дублировать вывод /tgsay
                     if (playerMessageText.toLowerCase().startsWith("/tgsay ")) {
                          LOGGER.trace("[TelegramBridge] Player message is a /tgsay command, will be handled by its own executor. Ignoring here.");
                          return;
                     }
 
-                    String formattedPlayerMessage = String.format("<%s> %s", playerName, playerMessageText);
-                    LOGGER.info("[TelegramBridge] Player message for Telegram. Sender: '{}', Content: '{}'", playerName, playerMessageText);
-                    sendToTelegram(formattedPlayerMessage, true, "PlayerChat:" + playerName); // Добавляем имя игрока к источнику
+                    String formattedPlayerMessage = String.format("<%s> %s", senderName, playerMessageText);
+                    LOGGER.info("[TelegramBridge] Player message for Telegram. Sender: '{}', Content: '{}'", senderName, playerMessageText);
+                    sendToTelegram(formattedPlayerMessage, true, "PlayerChat:" + senderName);
                 } else {
                     LOGGER.trace("[TelegramBridge] sendPlayerMessages is disabled. Ignoring player message from {}.", senderName);
                 }
-            } else { // sender == null, это потенциально системное сообщение
-                LOGGER.info("[TelegramBridge] Processing potential system message. TypeKey: '{}'", typeKeyName);
+            } else { // sender == null, системное сообщение
+                LOGGER.info("[TelegramBridge] Processing potential system message (sender == null). TypeKey: '{}'", typeKeyName);
                 String rawMessage = message.getContent().getString();
-                String messageOrigin = typeKey.type().chat().translationKey(); // Используем translationKey как origin
+                // String messageOrigin = typeKey.type().chat().translationKey(); // Уже есть в typeKeyName
 
-                // Фильтруем уже обработанные или нежелательные сообщения
-                if (rawMessage.contains(" via /tgsay]:") ||
-                    rawMessage.contains(" присоединился к игре") || // Уже обрабатывается PlayerJoin
-                    rawMessage.contains(" покинул игру")) {         // Уже обрабатывается PlayerLeave
-                     LOGGER.trace("[TelegramBridge] System message is join/leave/tgsay_echo. Ignoring: {}", rawMessage);
+                // Смерти и достижения теперь обрабатываются отдельными слушателями.
+                // Этот блок теперь для ДРУГИХ системных сообщений, если они есть и их нужно отправлять.
+                // Например, сообщения от командных блоков без указания игрока, /say из консоли сервера (не /tgsay)
+
+                // Фильтруем то, что уже точно обработано другими слушателями или не нужно
+                if (typeKeyName.startsWith("death.") || // Смерти обрабатываются ServerLivingEntityEvents
+                    typeKeyName.startsWith("chat.type.advancement.") || // Ачивки обрабатываются ServerAdvancementEvents
+                    rawMessage.contains(" via /tgsay]:") || // Эхо нашей команды
+                    rawMessage.contains(" присоединился к игре") || // Обрабатывается PlayerJoin
+                    rawMessage.contains(" покинул игру")) {         // Обрабатывается PlayerLeave
+                     LOGGER.trace("[TelegramBridge] System message (sender == null) is likely handled elsewhere or is an echo. TypeKey: '{}'. Ignoring: {}", typeKeyName, rawMessage);
                      return;
                 }
-
-                // Проверяем, включена ли отправка для этого типа сообщения
-                boolean shouldSend = false;
-                String eventTypeForTelegram = "System"; // Тип по умолчанию
-
-                // Очень упрощенная проверка на смерти и достижения по ключам перевода
-                // Эти ключи могут отличаться в разных версиях и локализациях!
-                if (messageOrigin.startsWith("death.") && config.sendDeaths) {
-                    shouldSend = true;
-                    eventTypeForTelegram = "Death";
-                    LOGGER.info("[TelegramBridge] Death message detected by TypeKey prefix: {}", messageOrigin);
-                } else if (messageOrigin.startsWith("chat.type.advancement.") && config.sendAchievements) {
-                    shouldSend = true;
-                    eventTypeForTelegram = "Achievement";
-                    LOGGER.info("[TelegramBridge] Advancement message detected by TypeKey prefix: {}", messageOrigin);
-                } else {
-                    // Если это не смерть и не достижение, и мы не хотим отправлять все подряд "системные"
-                    // можно добавить дополнительную логику или просто не отправлять.
-                    // Пока что, если это не смерть/достижение, мы не будем отправлять, если только не будет более общей настройки.
-                    LOGGER.info("[TelegramBridge] System message (TypeKey: {}) did not match specific handlers (death/achievement) or they are disabled. Raw: {}", messageOrigin, rawMessage);
-                }
-
-                if (shouldSend) {
-                    LOGGER.info("[TelegramBridge] System message FOR Telegram. Type: '{}', OriginKey: '{}', Content: '{}'", eventTypeForTelegram, messageOrigin, rawMessage);
-                    sendToTelegram(rawMessage, true, eventTypeForTelegram + ":" + messageOrigin);
-                }
+                // Если сюда дошло какое-то ДРУГОЕ системное сообщение:
+                // Можно добавить опцию config.sendOtherSystemMessages
+                // if (config.sendOtherSystemMessages) {
+                //    LOGGER.info("[TelegramBridge] Other System message FOR Telegram. OriginKey: '{}', Content: '{}'", typeKeyName, rawMessage);
+                //    sendToTelegram(rawMessage, true, "System:" + typeKeyName);
+                // } else {
+                LOGGER.info("[TelegramBridge] Unhandled system message (sender == null) detected. OriginKey: '{}', Content: '{}'. Not configured for sending.", typeKeyName, rawMessage);
+                // }
             }
         });
         LOGGER.info("[TelegramBridge] Chat Message Listener registered.");
+    }
+
+    private void registerLivingEntityEvents() {
+        LOGGER.info("[TelegramBridge] Registering Living Entity Events Listener (for deaths).");
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
+            LOGGER.info("[TelegramBridge] LIVING_ENTITY_AFTER_DEATH event fired. EntityType: {}, DamageSource: {}", entity.getType().getName().getString(), damageSource.getName());
+            if (entity instanceof ServerPlayerEntity && config.sendDeaths) {
+                ServerPlayerEntity player = (ServerPlayerEntity) entity;
+                String playerName = player.getGameProfile().getName();
+                Text deathMessageText = damageSource.getDeathMessage(player);
+                String deathMessageString;
+
+                if (deathMessageText != null) {
+                    deathMessageString = deathMessageText.getString();
+                } else {
+                    deathMessageString = playerName + " умер от неизвестной причины (" + damageSource.getName() + ")";
+                    LOGGER.warn("[TelegramBridge] Could not get standard death message for {}, source {}. Using fallback.", playerName, damageSource.getName());
+                }
+                
+                LOGGER.info("[TelegramBridge] Player death detected for Telegram. Player: '{}', Message: '{}'", playerName, deathMessageString);
+                sendToTelegram(deathMessageString, true, "PlayerDeath:" + damageSource.getName().replace('.', '_')); // Заменяем точки в имени источника урона
+            } else if (entity instanceof ServerPlayerEntity) {
+                LOGGER.trace("[TelegramBridge] Player death detected, but sendDeaths is disabled. Player: {}", ((ServerPlayerEntity)entity).getGameProfile().getName());
+            }
+        });
+    }
+
+    private void registerAdvancementEvents() {
+        LOGGER.info("[TelegramBridge] Registering Advancement Events Listener.");
+        ServerAdvancementEvents.ADVANCEMENT_GRANTED.register((player, advancementEntry) -> {
+            String playerName = player.getGameProfile().getName();
+            String advancementId = advancementEntry.id().toString();
+            LOGGER.info("[TelegramBridge] ADVANCEMENT_GRANTED event fired. Player: {}, Advancement ID: {}", playerName, advancementId);
+
+            if (config.sendAchievements) {
+                AdvancementDisplay display = advancementEntry.value().display().orElse(null);
+                if (display != null && display.shouldAnnounceToChat()) {
+                    String advancementTitle = display.getTitle().getString();
+                    String advancementMessage;
+                    if (display.getFrame() == AdvancementFrame.CHALLENGE) {
+                        advancementMessage = String.format("%s выполнил испытание [%s]", playerName, advancementTitle);
+                    } else {
+                        advancementMessage = String.format("%s получил достижение [%s]", playerName, advancementTitle);
+                    }
+                    LOGGER.info("[TelegramBridge] Advancement granted for Telegram. Player: '{}', Title: '{}', FullMsg: '{}'", playerName, advancementTitle, advancementMessage);
+                    sendToTelegram(advancementMessage, true, "Advancement:" + advancementEntry.id().getPath().replace('/', '_')); // Заменяем / в пути
+                } else {
+                    LOGGER.trace("[TelegramBridge] Advancement '{}' for player {} should not be announced or has no display. Ignoring.", advancementId, playerName);
+                }
+            } else {
+                 LOGGER.trace("[TelegramBridge] Advancement granted, but sendAchievements is disabled. Player: {}, Advancement: {}", playerName, advancementId);
+            }
+        });
     }
 
     private void sendToTelegram(String message, boolean addPrefix, String origin) {
@@ -477,24 +509,28 @@ public class TelegramBridgeMod implements ModInitializer {
             return;
         }
 
-        String finalMessage;
+        String finalMessageText;
         if (addPrefix) {
             String dateTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
-            String senderDisplay = (origin != null && !origin.isEmpty()) ? origin : "SystemEvent"; // Изменено для ясности
-            finalMessage = String.format("[%s] [%s]: %s", dateTime, senderDisplay, message);
+            String senderDisplay = (origin != null && !origin.isEmpty()) ? origin : "SystemEvent";
+            finalMessageText = String.format("[%s] [%s]: %s", dateTime, senderDisplay, message);
         } else {
-            finalMessage = message;
+            finalMessageText = message;
         }
 
-        LOGGER.info("[TelegramBridge] Preparing to send to Telegram API. ChatID: {}, Final Formatted Message: '{}'", config.telegramChatId, finalMessage);
+        // Экранирование HTML не нужно, так как parse_mode не используется
+        // String escapedFinalMessage = escapeHtml(finalMessageText); // УДАЛЕНО
+
+        LOGGER.info("[TelegramBridge] Preparing to send to Telegram API. ChatID: {}, Final Message: '{}'", config.telegramChatId, finalMessageText);
 
         CompletableFuture.runAsync(() -> {
-            LOGGER.debug("[TelegramBridge] Inside CompletableFuture for sending message: '{}'", finalMessage);
+            LOGGER.debug("[TelegramBridge] Inside CompletableFuture for sending message: '{}'", finalMessageText);
             try {
                 String urlString = "https://api.telegram.org/bot" + config.telegramBotToken + "/sendMessage";
+                // Убираем parse_mode=HTML, чтобы текст отправлялся как есть
                 String requestBody = "chat_id=" + URLEncoder.encode(config.telegramChatId, StandardCharsets.UTF_8) +
-                                     "&text=" + URLEncoder.encode(finalMessage, StandardCharsets.UTF_8) +
-                                     "&parse_mode=HTML";
+                                     "&text=" + URLEncoder.encode(finalMessageText, StandardCharsets.UTF_8);
+                                     // "&parse_mode=HTML" - УДАЛЕНО
 
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(urlString))
@@ -513,11 +549,11 @@ public class TelegramBridgeMod implements ModInitializer {
                     LOGGER.error("[TelegramBridge] Telegram API Error sending message '{}'. Status: {}, Body: '{}'", message, response.statusCode(), response.body());
                 }
             } catch (Exception e) {
-                LOGGER.error("[TelegramBridge] Exception during Telegram HTTP send for message '{}'. Exception: {} | Message: {}",
+                LOGGER.error("[TelegramBridge] Exception during Telegram HTTP send for message (original): '{}'. Exception: {} | Message: {}",
                         message, e.getClass().getSimpleName(), e.getMessage());
-                LOGGER.debug("[TelegramBridge] Full stack trace for Telegram send exception:", e); // Полный стектрейс в debug
+                LOGGER.debug("[TelegramBridge] Full stack trace for Telegram send exception:", e);
             }
-        }, CompletableFuture.delayedExecutor(10, java.util.concurrent.TimeUnit.MILLISECONDS)); // Небольшая задержка, чтобы логи успели записаться перед асинхронной задачей
-        LOGGER.debug("[TelegramBridge] CompletableFuture for message '{}' submitted.", finalMessage);
+        }, CompletableFuture.delayedExecutor(10, TimeUnit.MILLISECONDS));
+        LOGGER.debug("[TelegramBridge] CompletableFuture for message '{}' submitted.", finalMessageText);
     }
 }

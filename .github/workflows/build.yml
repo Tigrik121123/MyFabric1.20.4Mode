@@ -26,5 +26,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: telegram-bridge-mod-fabric
-          path: build/libs/!(*-dev*|*-sources*|*-javadoc*).jar # Загружаем только основной jar
+          path: build/libs/*.jar # <--- ИЗМЕНИТЬ НА ЭТО
           if-no-files-found: error

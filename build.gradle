@@ -6,7 +6,6 @@ plugins {
 
 version = project.mod_version
 group = project.mod_group
-fabric_version=0.97.2+1.20.4
 
 base {
 	archivesName = project.archives_base_name

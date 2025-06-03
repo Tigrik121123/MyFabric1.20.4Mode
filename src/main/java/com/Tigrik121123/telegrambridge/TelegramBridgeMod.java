@@ -119,13 +119,27 @@ public class TelegramBridgeMod implements ModInitializer {
         });
     }
 
-    private void sendToTelegram(String message, boolean addPrefix, String origin) {
-        if (telegramBotToken == null || telegramChatId == null) {
-            // Можно добавить сообщение в лог сервера, если хотите
-            // LOGGER.warn("Telegram Bot Token или Chat ID не установлены. Сообщение не отправлено.");
-            // Но не спамим в чат игрока, если он не виноват
-            return;
+   private void sendToTelegram(String message, boolean addPrefix, String origin) {
+    if (telegramBotToken == null || telegramChatId == null) {
+        LOGGER.warn("[TelegramBridge] Telegram Bot Token или Chat ID не установлены. Сообщение НЕ отправлено: {}", message);
+        return;
+    }
+    // ... форматирование finalMessage ...
+    LOGGER.info("[TelegramBridge] Attempting to send to Telegram. ChatID: {}, Prefix: {}, Origin: {}, Message: {}", telegramChatId, addPrefix, origin, finalMessage);
+
+    CompletableFuture.runAsync(() -> {
+        try {
+            // ... код запроса ...
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            LOGGER.info("[TelegramBridge] Telegram API Response Code: {}", response.statusCode());
+            if (response.statusCode() != 200) {
+                LOGGER.error("[TelegramBridge] Telegram API Error Response Body: {}", response.body());
+            }
+        } catch (Exception e) {
+            LOGGER.error("[TelegramBridge] Exception during Telegram send: ", e);
         }
+    });
+}
 
         String finalMessage;
         if (addPrefix) {

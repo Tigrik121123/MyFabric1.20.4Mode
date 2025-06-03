@@ -40,11 +40,19 @@ dependencies {
 }
 
 processResources {
-	inputs.property "version", project.version // Передаем только 'version'
+    // Определяем все свойства, которые мы хотим использовать для подстановки
+    inputs.property "version", project.version
+    inputs.property "mod_id", project.mod_id // На всякий случай, если где-то есть ${mod_id}
+    inputs.property "mod_name", project.mod_name // На всякий случай
+    inputs.property "mod_group", project.mod_group // На всякий случай
+    inputs.property "minecraft_version", project.minecraft_version
+    inputs.property "loader_version", project.loader_version
+    inputs.property "fabric_version", project.fabric_version // На всякий случай, если используется в fabric.mod.json
 
-	filesMatching("fabric.mod.json") {
-		expand "version": inputs.properties.version // Используем только 'version'
-	}
+    filesMatching("fabric.mod.json") {
+        // Передаем все определенные выше свойства в контекст expand
+        expand(inputs.properties) 
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {

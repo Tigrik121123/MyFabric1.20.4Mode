@@ -8,8 +8,8 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.minecraft.network.message.MessageType;
-import net.minecraft.network.message.SignedMessage;
+// import net.minecraft.network.message.MessageType; // Уже есть
+// import net.minecraft.network.message.SignedMessage; // Уже есть
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -48,14 +48,12 @@ public class TelegramBridgeMod implements ModInitializer {
             .version(HttpClient.Version.HTTP_2)
             .build();
 
-    // Статическая ссылка на сервер, чтобы отправлять сообщения игрокам не из контекста команды
     private static MinecraftServer serverInstance;
 
     @Override
     public void onInitialize() {
         LOGGER.info("[TelegramBridge] Mod Initializing!");
 
-        // Инициализация конфигурации
         File configDir = new File("config");
         if (!configDir.exists()) {
             configDir.mkdirs();
@@ -67,17 +65,14 @@ public class TelegramBridgeMod implements ModInitializer {
         registerMessageListener();
         registerPlayerConnectionListener();
 
-        // Сохраняем экземпляр сервера при его старте
         ServerLifecycleEvents.SERVER_STARTED.register(server -> serverInstance = server);
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> serverInstance = null); // Очищаем при остановке
+        ServerLifecycleEvents.SERVER_STOPPING.register(server -> serverInstance = null);
     }
 
     private static class Config {
         String telegramBotToken = "";
         String telegramChatId = "";
-        boolean enabled = true; // По умолчанию включено
-
-        // Пустой конструктор для Gson
+        boolean enabled = true;
         public Config() {}
     }
 
@@ -85,17 +80,18 @@ public class TelegramBridgeMod implements ModInitializer {
         if (configFile.exists()) {
             try (FileReader reader = new FileReader(configFile)) {
                 config = GSON.fromJson(reader, Config.class);
-                if (config == null) { // Если файл пустой или некорректный JSON
+                if (config == null) {
                     config = new Config();
                     LOGGER.warn("[TelegramBridge] Config file was empty or malformed. Loaded default config.");
-                    saveConfig(); // Сохраняем дефолтный конфиг
+                    saveConfig();
                 } else {
                      LOGGER.info("[TelegramBridge] Config loaded. Enabled: {}, Token set: {}, ChatID set: {}",
-                        config.enabled, !config.telegramBotToken.isEmpty(), !config.telegramChatId.isEmpty());
+                        config.enabled, (config.telegramBotToken != null && !config.telegramBotToken.isEmpty()),
+                                      (config.telegramChatId != null && !config.telegramChatId.isEmpty()));
                 }
             } catch (IOException e) {
                 LOGGER.error("[TelegramBridge] Failed to load config file!", e);
-                config = new Config(); // Загружаем дефолт в случае ошибки
+                config = new Config();
             }
         } else {
             LOGGER.info("[TelegramBridge] Config file not found, creating a new one with default values.");
@@ -105,6 +101,10 @@ public class TelegramBridgeMod implements ModInitializer {
     }
 
     private static void saveConfig() {
+        if (config == null) {
+            LOGGER.error("[TelegramBridge] Attempted to save null config. This should not happen.");
+            config = new Config();
+        }
         try (FileWriter writer = new FileWriter(configFile)) {
             GSON.toJson(config, writer);
             LOGGER.info("[TelegramBridge] Config saved.");
@@ -118,15 +118,12 @@ public class TelegramBridgeMod implements ModInitializer {
             ServerPlayerEntity player = handler.getPlayer();
             LOGGER.info("[TelegramBridge] Player {} joined. Sending status message.", player.getGameProfile().getName());
             sendWelcomeMessage(player);
-
-            // Отправляем сообщение о входе в Telegram
             String joinMessage = player.getGameProfile().getName() + " присоединился к игре.";
             sendToTelegram(joinMessage, true, "PlayerJoin");
         });
 
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             ServerPlayerEntity player = handler.getPlayer();
-             // Отправляем сообщение о выходе в Telegram
             String leaveMessage = player.getGameProfile().getName() + " покинул игру.";
             sendToTelegram(leaveMessage, true, "PlayerLeave");
         });
@@ -134,59 +131,75 @@ public class TelegramBridgeMod implements ModInitializer {
 
     private void sendWelcomeMessage(ServerPlayerEntity player) {
         MutableText message = Text.literal("[TelegramBridge] ").formatted(Formatting.GOLD);
-        if (config.telegramBotToken == null || config.telegramBotToken.isEmpty()) {
+        boolean tokenSet = config.telegramBotToken != null && !config.telegramBotToken.isEmpty();
+        boolean chatIdSet = config.telegramChatId != null && !config.telegramChatId.isEmpty();
+
+        if (!tokenSet) {
             message.append(Text.literal("Токен Telegram бота не установлен! ").formatted(Formatting.RED));
             message.append(Text.literal("[Установить]").setStyle(Style.EMPTY
                     .withFormatting(Formatting.AQUA, Formatting.UNDERLINE)
-                    .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/token "))
-                    .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Text.literal("Нажмите, чтобы ввести команду /token")))));
+                    .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tgtoken "))
+                    .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Text.literal("Нажмите, чтобы ввести команду /tgtoken")))));
             message.append(Text.literal(" "));
         }
-        if (config.telegramChatId == null || config.telegramChatId.isEmpty()) {
+        if (!chatIdSet) {
             message.append(Text.literal("ID чата Telegram не установлен! ").formatted(Formatting.RED));
             message.append(Text.literal("[Установить]").setStyle(Style.EMPTY
                     .withFormatting(Formatting.AQUA, Formatting.UNDERLINE)
-                    .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/chatid "))
-                    .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Text.literal("Нажмите, чтобы ввести команду /chatid")))));
+                    .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/tgchatid "))
+                    .withHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, Text.literal("Нажмите, чтобы ввести команду /tgchatid")))));
+             message.append(Text.literal(" "));
         }
-        if (config.telegramBotToken != null && !config.telegramBotToken.isEmpty() &&
-            config.telegramChatId != null && !config.telegramChatId.isEmpty()) {
+        if (tokenSet && chatIdSet) {
             message.append(Text.literal("Токен и ID чата установлены. Отправка ").formatted(Formatting.GREEN));
             if (config.enabled) {
                 message.append(Text.literal("ВКЛЮЧЕНА.").formatted(Formatting.GREEN));
             } else {
                 message.append(Text.literal("ВЫКЛЮЧЕНА.").formatted(Formatting.YELLOW));
             }
+        } else if (tokenSet || chatIdSet) {
+             if (message.getString().endsWith(" ")) {
+                MutableText temp = Text.empty();
+                message.getSiblings().forEach(temp::append);
+                if (!temp.getSiblings().isEmpty()) { // Ensure siblings list is not empty before accessing
+                    Text lastSibling = temp.getSiblings().get(temp.getSiblings().size() - 1);
+                    // Create a new MutableText to avoid modifying shared Style
+                    MutableText newLastSibling = lastSibling.copy(); 
+                    newLastSibling.append("\n");
+                    temp.getSiblings().set(temp.getSiblings().size() - 1, newLastSibling);
+                }
+                message = Text.literal("[TelegramBridge] ").formatted(Formatting.GOLD).append(temp);
+             } else {
+                message.append(Text.literal("\n"));
+             }
         }
-        player.sendMessage(message, false); // false - не как системное сообщение в action bar
+        player.sendMessage(message, false);
     }
-
 
     private void registerCommands() {
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-            dispatcher.register(CommandManager.literal("token")
+            dispatcher.register(CommandManager.literal("tgtoken")
                 .requires(source -> source.hasPermissionLevel(2))
                 .then(CommandManager.argument("token_value", StringArgumentType.greedyString())
                     .executes(context -> {
                         config.telegramBotToken = StringArgumentType.getString(context, "token_value");
                         saveConfig();
                         context.getSource().sendFeedback(() -> Text.literal("Telegram Bot Token установлен и сохранен."), false);
-                        LOGGER.info("[TelegramBridge] Telegram Bot Token set and saved: '{}'",config.telegramBotToken);
+                        LOGGER.info("[TelegramBridge] Telegram Bot Token set and saved: '{}'", config.telegramBotToken);
                         return 1;
                     })));
 
-            dispatcher.register(CommandManager.literal("chatid")
+            dispatcher.register(CommandManager.literal("tgchatid")
                 .requires(source -> source.hasPermissionLevel(2))
                 .then(CommandManager.argument("chat_id_value", StringArgumentType.greedyString())
                     .executes(context -> {
                         config.telegramChatId = StringArgumentType.getString(context, "chat_id_value");
                         saveConfig();
                         context.getSource().sendFeedback(() -> Text.literal("Telegram Chat ID установлен и сохранен."), false);
-                        LOGGER.info("[TelegramBridge] Telegram Chat ID set and saved: '{}'",config.telegramChatId);
+                        LOGGER.info("[TelegramBridge] Telegram Chat ID set and saved: '{}'", config.telegramChatId);
                         return 1;
                     })));
 
-            // Измененное имя команды для избежания конфликта
             dispatcher.register(CommandManager.literal("tgsay")
                 .requires(source -> source.hasPermissionLevel(0))
                 .then(CommandManager.argument("text", StringArgumentType.greedyString())
@@ -206,45 +219,83 @@ public class TelegramBridgeMod implements ModInitializer {
                         return 1;
                     })));
 
+            // Команда /tgtoggle (переключатель)
             dispatcher.register(CommandManager.literal("tgtoggle")
-                .requires(source -> source.hasPermissionLevel(2)) // Только для админов
+                .requires(source -> source.hasPermissionLevel(2))
                 .executes(context -> {
                     config.enabled = !config.enabled;
                     saveConfig();
                     String status = config.enabled ? "ВКЛЮЧЕНА" : "ВЫКЛЮЧЕНА";
                     context.getSource().sendFeedback(() -> Text.literal("Отправка сообщений в Telegram теперь " + status + "."), false);
-                    LOGGER.info("[TelegramBridge] Telegram sending toggled. Now: {}", status);
+                    LOGGER.info("[TelegramBridge] Telegram sending toggled via /tgtoggle. Now: {}", status);
+                    return 1;
+                }));
+
+            // Команда /tgon (принудительно включить)
+            dispatcher.register(CommandManager.literal("tgon")
+                .requires(source -> source.hasPermissionLevel(2))
+                .executes(context -> {
+                    if (!config.enabled) {
+                        config.enabled = true;
+                        saveConfig();
+                        context.getSource().sendFeedback(() -> Text.literal("Отправка сообщений в Telegram ВКЛЮЧЕНА."), false);
+                        LOGGER.info("[TelegramBridge] Telegram sending ENABLED via /tgon command.");
+                    } else {
+                        context.getSource().sendFeedback(() -> Text.literal("Отправка сообщений в Telegram уже была включена."), false);
+                    }
+                    return 1;
+                }));
+
+            // Команда /tgoff (принудительно выключить)
+            dispatcher.register(CommandManager.literal("tgoff")
+                .requires(source -> source.hasPermissionLevel(2))
+                .executes(context -> {
+                    if (config.enabled) {
+                        config.enabled = false;
+                        saveConfig();
+                        context.getSource().sendFeedback(() -> Text.literal("Отправка сообщений в Telegram ВЫКЛЮЧЕНА."), false);
+                        LOGGER.info("[TelegramBridge] Telegram sending DISABLED via /tgoff command.");
+                    } else {
+                        context.getSource().sendFeedback(() -> Text.literal("Отправка сообщений в Telegram уже была выключена."), false);
+                    }
                     return 1;
                 }));
 
             dispatcher.register(CommandManager.literal("tgstatus")
-                .requires(source -> source.hasPermissionLevel(0)) // Доступно всем
+                .requires(source -> source.hasPermissionLevel(0))
                 .executes(context -> {
                     MutableText statusMessage = Text.literal("--- Telegram Bridge Статус ---\n").formatted(Formatting.GOLD);
-                    statusMessage.append(Text.literal("Отправка сообщений: ").formatted(Formatting.YELLOW));
-                    statusMessage.append(Text.literal(config.enabled ? "ВКЛЮЧЕНА" : "ВЫКЛЮЧЕНА\n").formatted(config.enabled ? Formatting.GREEN : Formatting.RED));
 
-                    statusMessage.append(Text.literal("Токен бота: ").formatted(Formatting.YELLOW));
+                    String sendingLabel = "Отправка сообщений: ";
+                    String tokenLabel   = "Токен бота:         ";
+                    String chatIdLabel  = "Chat ID:            ";
+
+                    statusMessage.append(Text.literal(sendingLabel).formatted(Formatting.YELLOW));
+                    statusMessage.append(Text.literal(config.enabled ? "ВКЛЮЧЕНА" : "ВЫКЛЮЧЕНА").formatted(config.enabled ? Formatting.GREEN : Formatting.RED));
+                    statusMessage.append(Text.literal("\n"));
+
+                    statusMessage.append(Text.literal(tokenLabel).formatted(Formatting.YELLOW));
                     if (config.telegramBotToken != null && !config.telegramBotToken.isEmpty()) {
-                        // Показываем только часть токена для безопасности, если не админ
-                        String partialToken = config.telegramBotToken.substring(0, Math.min(config.telegramBotToken.length(), 10)) + "...";
-                        statusMessage.append(Text.literal(partialToken).formatted(Formatting.GREEN));
-                        if (context.getSource().hasPermissionLevel(2)) { // Админ видит полный токен
-                             statusMessage.append(Text.literal(" (Полный: " + config.telegramBotToken + ")\n").formatted(Formatting.GRAY));
+                        String displayToken;
+                        if (context.getSource().hasPermissionLevel(2)) {
+                             displayToken = config.telegramBotToken;
                         } else {
-                            statusMessage.append(Text.literal("\n"));
+                            displayToken = config.telegramBotToken.substring(0, Math.min(config.telegramBotToken.length(), 10)) +
+                                           (config.telegramBotToken.length() > 10 ? "..." : "");
                         }
+                        statusMessage.append(Text.literal(displayToken).formatted(Formatting.GREEN));
                     } else {
-                        statusMessage.append(Text.literal("НЕ УСТАНОВЛЕН\n").formatted(Formatting.RED));
+                        statusMessage.append(Text.literal("НЕ УСТАНОВЛЕН").formatted(Formatting.RED));
                     }
+                    statusMessage.append(Text.literal("\n"));
 
-                    statusMessage.append(Text.literal("Chat ID: ").formatted(Formatting.YELLOW));
+                    statusMessage.append(Text.literal(chatIdLabel).formatted(Formatting.YELLOW));
                     if (config.telegramChatId != null && !config.telegramChatId.isEmpty()) {
-                        statusMessage.append(Text.literal(config.telegramChatId + "\n").formatted(Formatting.GREEN));
+                        statusMessage.append(Text.literal(config.telegramChatId).formatted(Formatting.GREEN));
                     } else {
-                        statusMessage.append(Text.literal("НЕ УСТАНОВЛЕН\n").formatted(Formatting.RED));
+                        statusMessage.append(Text.literal("НЕ УСТАНОВЛЕН").formatted(Formatting.RED));
                     }
-                    statusMessage.append(Text.literal("----------------------------").formatted(Formatting.GOLD));
+                    statusMessage.append(Text.literal("\n----------------------------").formatted(Formatting.GOLD));
 
                     context.getSource().sendFeedback(() -> statusMessage, false);
                     return 1;
@@ -259,25 +310,13 @@ public class TelegramBridgeMod implements ModInitializer {
                     typeKey.type().chat().translationKey(),
                     message.getContent().getString());
 
-            // Сообщения о входе/выходе уже обрабатываются ServerPlayConnectionEvents
-            // if (sender == null) {
-            //    String rawMessage = message.getContent().getString();
-            //    // Проверка на сообщения о входе/выходе, чтобы не дублировать
-            //    if (rawMessage.contains(" присоединился к игре") || rawMessage.contains(" покинул игру")) {
-            //        return; // Уже обработано другим слушателем
-            //    }
-            // ... остальная логика для других системных сообщений ...
-            // }
-
-            // Оставляем только для других системных сообщений (смерти, ачивки)
-             if (sender == null) {
+            if (sender == null) { // Системные сообщения (смерти, ачивки и т.д.)
                 String rawMessage = message.getContent().getString();
                 String messageOrigin = typeKey.type().chat().translationKey();
 
-                // Пропускаем сообщения, которые уже обработаны другими слушателями или являются эхом /tgsay
                 if (rawMessage.contains(" via /tgsay]:") ||
-                    rawMessage.contains(" присоединился к игре") || // Уже обрабатывается PlayerJoin
-                    rawMessage.contains(" покинул игру")) {         // Уже обрабатывается PlayerLeave
+                    rawMessage.contains(" присоединился к игре") ||
+                    rawMessage.contains(" покинул игру")) {
                      LOGGER.trace("[TelegramBridge] Ignoring already handled or self-generated message: {}", rawMessage);
                      return;
                 }
@@ -289,6 +328,10 @@ public class TelegramBridgeMod implements ModInitializer {
     }
 
     private void sendToTelegram(String message, boolean addPrefix, String origin) {
+        if (config == null) {
+            LOGGER.error("[TelegramBridge] Config is null! Cannot send message. This indicates a problem at startup.");
+            return;
+        }
         if (!config.enabled) {
             LOGGER.info("[TelegramBridge] Sending disabled globally. Message NOT sent: {}", message);
             return;
@@ -298,10 +341,9 @@ public class TelegramBridgeMod implements ModInitializer {
         if (config.telegramBotToken == null || config.telegramBotToken.isEmpty() ||
             config.telegramChatId == null || config.telegramChatId.isEmpty()) {
             LOGGER.warn("[TelegramBridge] Telegram Bot Token или Chat ID не установлены или пусты. Сообщение НЕ отправлено: {}", message);
-            // Уведомляем админов в игре, если они онлайн
             if (serverInstance != null) {
                 serverInstance.getPlayerManager().getPlayerList().forEach(player -> {
-                    if (player.hasPermissionLevel(2)) { // Уровень оператора
+                    if (player.hasPermissionLevel(2)) {
                         player.sendMessage(Text.literal("[TelegramBridge] Ошибка: Токен или ChatID не установлены! Сообщение в Telegram не отправлено.").formatted(Formatting.RED), false);
                     }
                 });

@@ -16,7 +16,7 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "com.github.tigrik121123" // ИЗМЕНИ com.yourusername на твой group_id из gradle.properties
+      "com.Tigrik121123.telegrambridge.TelegramBridgeMod" // Должно совпадать с твоим пакетом и именем класса
     ]
   },
   "mixins": [], // Оставляем пустым, если миксины не используются

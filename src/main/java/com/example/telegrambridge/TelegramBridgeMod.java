@@ -6,6 +6,8 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.network.message.SignedMessage; // Если еще не было
+import net.minecraft.network.message.MessageType;   // Если еще не было
 import net.minecraft.text.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,34 +84,39 @@ public class TelegramBridgeMod implements ModInitializer {
         });
     }
 
-    private void registerMessageListener() {
-        ServerMessageEvents.CHAT_MESSAGE.register((message, sender, typeKey) -> {
-            // sender - это ServerPlayerEntity. Если он null, значит, сообщение не от игрока.
+        private void registerMessageListener() {
+            ServerMessageEvents.CHAT_MESSAGE.register((message, sender, typeKey) -> {
+            // message: net.minecraft.network.message.SignedMessage
+            // sender: net.minecraft.server.network.ServerPlayerEntity
+            // typeKey: net.minecraft.network.message.MessageType.Parameters
+
+            // Мы заинтересованы только в сообщениях, которые НЕ ОТ ИГРОКА
+            // sender будет null для большинства системных сообщений (смерти, ачивки, /say из консоли и т.д.)
             if (sender == null) {
-                String rawMessage = message.getString();
-                String messageOrigin = typeKey.chat().translationKey(); 
-                // Вы можете захотеть использовать более простое "System" или "Сервер"
-                // String messageOrigin = "Сервер"; 
+                // Получаем содержимое сообщения (Text) и затем его строковое представление
+                String rawMessage = message.getContent().getString();
+
+                // Получаем тип сообщения, затем его "chat" параметры, затем ключ перевода
+                // Это даст нам что-то вроде "chat.type.text", "chat.type.announcement", "death.attack.generic", и т.д.
+                String messageOrigin = typeKey.type().chat().translationKey();
                 
-                // Игнорируем сообщения, которые мы сами отправили через /say, чтобы избежать петли
-                // Это очень упрощенная проверка, может потребовать улучшения
-                if (rawMessage.startsWith("[" ) && rawMessage.contains(" via /say]:")) {
-                    return;
+                // Если вам не нравится ключ перевода, можно использовать что-то проще:
+                // String messageOrigin = "Сервер"; // Просто и понятно
+                // Или имя типа сообщения:
+                // String messageOrigin = typeKey.type().name().toUpperCase(); // CHAT, SYSTEM, GAME_INFO
+
+                // Простая проверка, чтобы не отправлять в Telegram сообщения, 
+                // которые могли быть инициированы командой /say из этого же мода.
+                // Это очень базовая проверка.
+                if (rawMessage.contains(" via /say]:")) {
+                     LOGGER.trace("Ignoring self-generated /say message to prevent loop: " + rawMessage);
+                     return;
                 }
 
+                LOGGER.info("System message detected. Origin: {}, Content: {}", messageOrigin, rawMessage); // Для отладки
                 sendToTelegram(rawMessage, true, messageOrigin);
             }
         });
-         // Для отслеживания других системных сообщений (смерти, ачивки и т.д.)
-         // Fabric API не предоставляет прямого универсального события для *всех* не-игровых сообщений.
-         // ServerMessageEvents.GAME_MESSAGE - это для сообщений в action bar или системных сообщений, отображаемых в чате.
-         // ServerMessageEvents.SYSTEM_MESSAGE - это для системных сообщений, которые могут не иметь отправителя.
-         // Для многих серверных сообщений (типа "Player joined", "Player left", смерти, ачивки)
-         // они часто проходят через систему Text-компонентов и могут не иметь явного "отправителя" в ServerMessageEvents.CHAT_MESSAGE
-         // В таких случаях они могут быть отфильтрованы как sender == null.
-         // Важно протестировать, какие именно сообщения вам нужны.
-         // Для более глубокого перехвата может потребоваться использование Mixin'ов, что усложнит задачу.
-         // Пока что будем полагаться на `sender == null` в `CHAT_MESSAGE` для большинства системных сообщений, которые выводятся в чат.
     }
 
     private void sendToTelegram(String message, boolean addPrefix, String origin) {

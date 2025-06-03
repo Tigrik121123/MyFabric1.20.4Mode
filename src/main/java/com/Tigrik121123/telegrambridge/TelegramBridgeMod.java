@@ -6,8 +6,9 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.network.message.SignedMessage; // Если еще не было
-import net.minecraft.network.message.MessageType;   // Если еще не было
+// Импорты SignedMessage и MessageType уже были, но на всякий случай:
+import net.minecraft.network.message.SignedMessage;
+import net.minecraft.network.message.MessageType;
 import net.minecraft.text.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +24,7 @@ import java.util.Date;
 import java.util.concurrent.CompletableFuture;
 
 public class TelegramBridgeMod implements ModInitializer {
-    public static final String MOD_ID = "telegram_bridge"; // Должен совпадать с id в fabric.mod.json
+    public static final String MOD_ID = "telegram_bridge";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     private static String telegramBotToken = null;
@@ -35,8 +36,7 @@ public class TelegramBridgeMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        LOGGER.info("Telegram Bridge Mod Initializing!");
-
+        LOGGER.info("[TelegramBridge] Mod Initializing!");
         registerCommands();
         registerMessageListener();
     }
@@ -49,7 +49,7 @@ public class TelegramBridgeMod implements ModInitializer {
                     .executes(context -> {
                         telegramBotToken = StringArgumentType.getString(context, "token_value");
                         context.getSource().sendFeedback(() -> Text.literal("Telegram Bot Token установлен."), false);
-                        LOGGER.info("Telegram Bot Token set via command.");
+                        LOGGER.info("[TelegramBridge] Telegram Bot Token set to: '{}'", telegramBotToken); // Логируем сам токен (осторожно с этим в публичных логах)
                         return 1;
                     })));
 
@@ -59,105 +59,78 @@ public class TelegramBridgeMod implements ModInitializer {
                     .executes(context -> {
                         telegramChatId = StringArgumentType.getString(context, "chat_id_value");
                         context.getSource().sendFeedback(() -> Text.literal("Telegram Chat ID установлен."), false);
-                        LOGGER.info("Telegram Chat ID set via command.");
+                        LOGGER.info("[TelegramBridge] Telegram Chat ID set to: '{}'", telegramChatId);
                         return 1;
                     })));
 
             dispatcher.register(CommandManager.literal("say")
-                .requires(source -> source.hasPermissionLevel(0)) // Разрешим всем по умолчанию, можно изменить на 2 для админов
+                .requires(source -> source.hasPermissionLevel(0))
                 .then(CommandManager.argument("text", StringArgumentType.greedyString())
                     .executes(context -> {
                         String messageText = StringArgumentType.getString(context, "text");
-                        String senderName = "Server"; // По умолчанию
+                        String senderName = "Server";
                         if (context.getSource().isExecutedByPlayer()) {
                             ServerPlayerEntity player = context.getSource().getPlayer();
                             if (player != null) {
                                 senderName = player.getGameProfile().getName();
                             }
                         }
-                        
+                        LOGGER.info("[TelegramBridge] /say command executed by '{}'. Message: '{}'", senderName, messageText);
                         String telegramMessage = "[" + senderName + " via /say]: " + messageText;
                         sendToTelegram(telegramMessage, false, senderName);
-                        context.getSource().sendFeedback(() -> Text.literal("Сообщение отправлено в Telegram."), false);
+                        context.getSource().sendFeedback(() -> Text.literal("Попытка отправить сообщение в Telegram... (см. логи сервера)"), false);
                         return 1;
                     })));
         });
     }
 
-        private void registerMessageListener() {
-            ServerMessageEvents.CHAT_MESSAGE.register((message, sender, typeKey) -> {
-            // message: net.minecraft.network.message.SignedMessage
-            // sender: net.minecraft.server.network.ServerPlayerEntity
-            // typeKey: net.minecraft.network.message.MessageType.Parameters
+    private void registerMessageListener() {
+        ServerMessageEvents.CHAT_MESSAGE.register((message, sender, typeKey) -> {
+            // Логируем все сообщения для отладки
+            LOGGER.info("[TelegramBridge] CHAT_MESSAGE event. Sender: {}, TypeKey: {}, Content: '{}'",
+                    (sender != null ? sender.getGameProfile().getName() : "NULL_SENDER"),
+                    typeKey.type().chat().translationKey(), // Получаем ключ типа сообщения
+                    message.getContent().getString());
 
-            // Мы заинтересованы только в сообщениях, которые НЕ ОТ ИГРОКА
-            // sender будет null для большинства системных сообщений (смерти, ачивки, /say из консоли и т.д.)
             if (sender == null) {
-                // Получаем содержимое сообщения (Text) и затем его строковое представление
                 String rawMessage = message.getContent().getString();
-
-                // Получаем тип сообщения, затем его "chat" параметры, затем ключ перевода
-                // Это даст нам что-то вроде "chat.type.text", "chat.type.announcement", "death.attack.generic", и т.д.
                 String messageOrigin = typeKey.type().chat().translationKey();
-                
-                // Если вам не нравится ключ перевода, можно использовать что-то проще:
-                // String messageOrigin = "Сервер"; // Просто и понятно
-                // Или имя типа сообщения:
-                // String messageOrigin = typeKey.type().name().toUpperCase(); // CHAT, SYSTEM, GAME_INFO
 
-                // Простая проверка, чтобы не отправлять в Telegram сообщения, 
-                // которые могли быть инициированы командой /say из этого же мода.
-                // Это очень базовая проверка.
                 if (rawMessage.contains(" via /say]:")) {
-                     LOGGER.trace("Ignoring self-generated /say message to prevent loop: " + rawMessage);
+                     LOGGER.trace("[TelegramBridge] Ignoring self-generated /say message to prevent loop: {}", rawMessage);
                      return;
                 }
 
-                LOGGER.info("System message detected. Origin: {}, Content: {}", messageOrigin, rawMessage); // Для отладки
+                LOGGER.info("[TelegramBridge] System message detected. Origin: '{}', Content: '{}'", messageOrigin, rawMessage);
                 sendToTelegram(rawMessage, true, messageOrigin);
             }
         });
     }
 
-private void sendToTelegram(String message, boolean addPrefix, String origin) {
-    if (telegramBotToken == null || telegramChatId == null) {
-        LOGGER.warn("[TelegramBridge] Telegram Bot Token или Chat ID не установлены. Сообщение НЕ отправлено: {}", message);
-        return;
-    }
-    // ... форматирование finalMessage ...
-    LOGGER.info("[TelegramBridge] Attempting to send to Telegram. ChatID: {}, Prefix: {}, Origin: {}, Message: {}", telegramChatId, addPrefix, origin, finalMessage);
-
-    CompletableFuture.runAsync(() -> {
-        try {
-            // ... код запроса ...
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            LOGGER.info("[TelegramBridge] Telegram API Response Code: {}", response.statusCode());
-            if (response.statusCode() != 200) {
-                LOGGER.error("[TelegramBridge] Telegram API Error Response Body: {}", response.body());
-            }
-        } catch (Exception e) {
-            LOGGER.error("[TelegramBridge] Exception during Telegram send: ", e);
+    private void sendToTelegram(String message, boolean addPrefix, String origin) {
+        LOGGER.info("[TelegramBridge] sendToTelegram called. Message: '{}', addPrefix: {}, origin: '{}'", message, addPrefix, origin);
+        if (telegramBotToken == null || telegramChatId == null || telegramBotToken.isEmpty() || telegramChatId.isEmpty()) {
+            LOGGER.warn("[TelegramBridge] Telegram Bot Token или Chat ID не установлены или пусты. Сообщение НЕ отправлено: {}", message);
+            return;
         }
-    });
-}
-    
+
         String finalMessage;
         if (addPrefix) {
             String dateTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
-            // Для системных сообщений, origin может быть ключом перевода, например "death.attack.generic"
-            // Или просто "Сервер", если вы так настроили
-            String senderDisplay = (origin != null && !origin.isEmpty()) ? origin : "System"; 
+            String senderDisplay = (origin != null && !origin.isEmpty()) ? origin : "System";
             finalMessage = String.format("[%s] [%s]: %s", dateTime, senderDisplay, message);
         } else {
-            finalMessage = message; // Для /say от игрока, уже содержит имя
+            finalMessage = message;
         }
+
+        LOGGER.info("[TelegramBridge] Attempting to send to Telegram. ChatID: {}, Final Message: '{}'", telegramChatId, finalMessage);
 
         CompletableFuture.runAsync(() -> {
             try {
                 String urlString = "https://api.telegram.org/bot" + telegramBotToken + "/sendMessage";
                 String requestBody = "chat_id=" + URLEncoder.encode(telegramChatId, StandardCharsets.UTF_8) +
                                      "&text=" + URLEncoder.encode(finalMessage, StandardCharsets.UTF_8) +
-                                     "&parse_mode=HTML"; // Или MarkdownV2
+                                     "&parse_mode=HTML";
 
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(urlString))
@@ -165,15 +138,18 @@ private void sendToTelegram(String message, boolean addPrefix, String origin) {
                         .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                         .build();
 
+                LOGGER.debug("[TelegramBridge] Sending HTTP request to: {} with body: {}", urlString, requestBody);
+
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
                 if (response.statusCode() == 200) {
-                    // LOGGER.info("Сообщение успешно отправлено в Telegram."); // Можно раскомментировать для отладки
+                    LOGGER.info("[TelegramBridge] Сообщение успешно отправлено в Telegram. Response Code: {}. Original message: '{}'", response.statusCode(), finalMessage);
                 } else {
-                    LOGGER.error("Ошибка отправки в Telegram: " + response.statusCode() + " - " + response.body());
+                    LOGGER.error("[TelegramBridge] Telegram API Error. Status: {}, Body: {}. Original message: '{}'", response.statusCode(), response.body(), finalMessage);
                 }
             } catch (Exception e) {
-                LOGGER.error("Исключение при отправке в Telegram: ", e);
+                // Оборачиваем finalMessage в одинарные кавычки для лога, на случай если он содержит символы форматирования SLF4J
+                LOGGER.error("[TelegramBridge] Exception during Telegram send for message '{}':", finalMessage, e);
             }
         });
     }

@@ -36,11 +36,10 @@ dependencies {
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
-    // --- ИЗМЕНЕНИЯ ЗДЕСЬ ---
-    // Возвращаем "зонтичную" зависимость Fabric API
-    modImplementation "net.fabricmc.fabric-api:fabric-advancements-v1:${project.fabric_version}"
+    // ТОЛЬКО ЭТА СТРОКА для Fabric API:
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-    // УДАЛЯЕМ BOM и явное перечисление всех модулей:
+    // УДАЛИТЬ или ЗАКОММЕНТИРОВАТЬ все это:
     // modImplementation platform("net.fabricmc:fabric-api-bom:${project.fabric_version}")
     // modImplementation "net.fabricmc.fabric-api:fabric-api-base"
     // modImplementation "net.fabricmc.fabric-api:fabric-lifecycle-events-v1"
@@ -48,8 +47,7 @@ dependencies {
     // modImplementation "net.fabricmc.fabric-api:fabric-message-api-v1"
     // modImplementation "net.fabricmc.fabric-api:fabric-networking-api-v1"
     // modImplementation "net.fabricmc.fabric-api:fabric-entity-events-v1"
-    // modImplementation "net.fabricmc.fabric-api:fabric-advancement-api-v1"
-    // -------------------------
+    // modImplementation "net.fabricmc.fabric-api:fabric-advancement-api-v1" // или fabric-advancements-v1
 }
 
 processResources {

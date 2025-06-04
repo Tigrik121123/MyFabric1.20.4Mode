@@ -38,6 +38,7 @@ dependencies {
 
     // ТОЛЬКО ЭТА СТРОКА для Fabric API:
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
 
     // УДАЛИТЬ или ЗАКОММЕНТИРОВАТЬ все это:
     // modImplementation platform("net.fabricmc:fabric-api-bom:${project.fabric_version}")
